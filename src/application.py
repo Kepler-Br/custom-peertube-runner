@@ -4,10 +4,9 @@ import os.path
 import os.path
 import pathlib
 
-import requests
-
 from config_models import ApplicationConfiguration, RegistrationConfiguration
 from exceptions import ApplicationStartUpError
+from runner_client import RunnerClient
 
 
 class ApplicationBuilder:
@@ -85,37 +84,6 @@ class ApplicationBuilder:
         pathlib.Path(tmp_dir).mkdir(parents=True, exist_ok=True)
 
 
-class RunnerClient:
-    def __init__(self, instance_url: str, name: str, description: str, registration_token: str,
-                 verify_ssl: bool = True):
-        self.logger = logging.getLogger(Application.__module__ + '.' + Application.__name__)
-        self.name = name
-        self.description = description
-        self.instance_url = instance_url
-        self.registration_token = registration_token
-        self.verify_ssl = verify_ssl
-
-    def register_new_runner(self):
-        self.logger.info(f'Registering runner for instance {self.instance_url}')
-        return requests.post(
-            url=os.path.join(self.instance_url, 'api/v1/runners/register'),
-            verify=self.verify_ssl,
-            data={
-                "registrationToken": self.registration_token,
-                "name": self.name,
-                "description": self.description
-            }
-        ).json()['runnerToken']
-
-    def unregister_runner(self, runner_token: str):
-        self.logger.info(f'Unregistering runner for instance {self.instance_url}')
-        return requests.post(
-            url=os.path.join(self.instance_url, 'api/v1/runners/unregister'),
-            verify=self.verify_ssl,
-            data={"runnerToken": runner_token}
-        )
-
-
 class Application:
     instances_file_name = 'instances.yaml'
 
@@ -136,8 +104,12 @@ class Application:
                                   description=self.config.description,
                                   registration_token=it.registration_token,
                                   verify_ssl=self.config.ssl_verification)
-            runner_token = client.register_new_runner()
-            client.unregister_runner(runner_token)
+            client.register()
+            jobs = client.request_a_new_job()
+            accepted = client.accept_job(jobs[0].uuid)
+            # 'ptrjt-c0bb6dbd-1e80-4ef5-9a5b-36e803e9b929'
+            client.abort_job(job_uuid=jobs[0].uuid, job_token=accepted.job.job_token, reason='Testing')
+            client.unregister()
 
     def run(self):
         self._register_runner()
