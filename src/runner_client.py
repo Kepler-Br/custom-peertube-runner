@@ -1,6 +1,8 @@
 import logging
+import os.path
 from typing import Optional, List
 
+import requests
 from peertube_api_client import ApiClient, Configuration, ApiV1RunnersRegisterPostRequest, \
     ApiV1RunnersRegisterPost200Response, ApiV1RunnersUnregisterPostRequest, RunnerJobsApi, RunnersApi, \
     ApiV1RunnersJobsRequestPost200ResponseAvailableJobsInner, \
@@ -69,6 +71,16 @@ class RunnerClient:
                 reason=reason
             )
         )
+
+    def get_video(self, url: str, output_dir: str, job_token: str) -> str:
+        filename = os.path.join(output_dir, job_token)
+        data = {'runnerToken': self.runner_token, 'jobToken': job_token}
+        with requests.post(url, stream=True, data=data, verify=self.verify_ssl) as r:
+            r.raise_for_status()
+            with open(filename, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+        return filename
 
     def register(self) -> str:
         self.logger.info(f'Registering runner for instance {self.instance_url}')

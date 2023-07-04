@@ -38,6 +38,10 @@ class ApplicationBuilder:
         if config.runner_name == 'TODO':
             raise ApplicationStartUpError(f'runner_name is "{config.runner_name}". '
                                           f'Have you changed your configuration at "{config_path}"?')
+        if len(config.instances) == 0:
+            raise ApplicationStartUpError(f'No instances configured under config path "instances:". '
+                                          f'Delete {config_path} to get a default config '
+                                          f'if don\'t know config structure.')
 
         if len(config.instances) == 0:
             raise ApplicationStartUpError(f'No instances configured in {config_path}')
@@ -107,7 +111,9 @@ class Application:
             client.register()
             jobs = client.request_a_new_job()
             accepted = client.accept_job(jobs[0].uuid)
-            # 'ptrjt-c0bb6dbd-1e80-4ef5-9a5b-36e803e9b929'
+            video_file = client.get_video(url=accepted.job.payload.actual_instance.input.video_file_url,
+                                          output_dir=self.config.tmp_dir, job_token=accepted.job.job_token)
+            os.remove(video_file)
             client.abort_job(job_uuid=jobs[0].uuid, job_token=accepted.job.job_token, reason='Testing')
             client.unregister()
 
