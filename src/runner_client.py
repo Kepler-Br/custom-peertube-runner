@@ -3,10 +3,12 @@ import os.path
 from typing import Optional, List
 
 import requests
+from barkeputils import human_readable_filesize_base_10
 from peertube_api_client import ApiClient, Configuration, ApiV1RunnersRegisterPostRequest, \
     ApiV1RunnersRegisterPost200Response, ApiV1RunnersUnregisterPostRequest, RunnerJobsApi, RunnersApi, \
     ApiV1RunnersJobsRequestPost200ResponseAvailableJobsInner, \
-    ApiV1RunnersJobsJobUUIDAcceptPost200Response, ApiV1RunnersJobsJobUUIDAbortPostRequest
+    ApiV1RunnersJobsJobUUIDAcceptPost200Response, ApiV1RunnersJobsJobUUIDAbortPostRequest, \
+    ApiV1RunnersJobsJobUUIDUpdatePostRequest, ApiV1RunnersJobsJobUUIDUpdatePostRequestPayload
 
 
 class RunnerClient:
@@ -74,12 +76,17 @@ class RunnerClient:
 
     def get_video(self, url: str, output_dir: str, job_token: str) -> str:
         filename = os.path.join(output_dir, job_token)
+        self.logger.debug(f'Downloading a video to {filename} for a job {job_token}')
         data = {'runnerToken': self.runner_token, 'jobToken': job_token}
+        total_bytes_downloaded = 0
         with requests.post(url, stream=True, data=data, verify=self.verify_ssl) as r:
             r.raise_for_status()
             with open(filename, 'wb') as f:
                 for chunk in r.iter_content(chunk_size=8192):
                     f.write(chunk)
+                    total_bytes_downloaded += len(chunk)
+        self.logger.debug('Downloaded a video to %s for a job %s with a size of %s',
+                          filename, job_token, human_readable_filesize_base_10(total_bytes_downloaded))
         return filename
 
     def register(self) -> str:
@@ -94,6 +101,25 @@ class RunnerClient:
         self.runner_token = rs.runner_token
 
         return self.runner_token
+
+    def update_job(
+            self,
+            job_uuid: str,
+            job_token: str,
+            progress: Optional[int] = None,
+            payload: Optional[ApiV1RunnersJobsJobUUIDUpdatePostRequestPayload] = None
+    ):
+        self.logger.info(f'Updating job progress for instance {self.instance_url} for a job {job_token}')
+
+        self.runner_jobs_api.api_v1_runners_jobs_job_uuid_update_post(
+            job_uuid=job_uuid,
+            api_v1_runners_jobs_job_uuid_update_post_request=ApiV1RunnersJobsJobUUIDUpdatePostRequest(
+                job_token=job_token,
+                runner_token=self.runner_token,
+                progress=progress,
+                payload=payload
+            )
+        )
 
     def unregister(self):
         self.logger.info(f'Unregistering runner for instance {self.instance_url}')

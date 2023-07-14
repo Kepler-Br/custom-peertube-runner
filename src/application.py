@@ -1,10 +1,14 @@
+import base64
 import logging
 import os
 import os.path
 import os.path
 import pathlib
 
+from peertube_api_client import ApiV1RunnersJobsJobUUIDUpdatePostRequestPayload
+
 from config_models import ApplicationConfiguration, RegistrationConfiguration
+from encoders.h264_encoder_job import H265EncoderJob
 from exceptions import ApplicationStartUpError
 from runner_client import RunnerClient
 
@@ -110,9 +114,35 @@ class Application:
                                   verify_ssl=self.config.ssl_verification)
             client.register()
             jobs = client.request_a_new_job()
+            if len(jobs) == 0:
+                self.logger.error('No jobs received')
+                return
             accepted = client.accept_job(jobs[0].uuid)
             video_file = client.get_video(url=accepted.job.payload.actual_instance.input.video_file_url,
                                           output_dir=self.config.tmp_dir, job_token=accepted.job.job_token)
+            transcode_job = H265EncoderJob().transcode_generator(job=accepted.job, target_dir=self.config.tmp_dir,
+                                                                 input_video=video_file)
+            while True:
+                try:
+                    next(transcode_job)
+                    client.update_job(job_uuid=jobs[0].uuid, job_token=accepted.job.job_token)
+                except StopIteration as ex:
+                    output_video_file = ex.value
+                    break
+            while True:
+                with open(output_video_file, 'rb') as fp:
+                    video_chunk = fp.read(1024 * 100)
+                    if len(video_chunk) == 0:
+                        break
+                    client.update_job(
+                        job_uuid=jobs[0].uuid,
+                        job_token=accepted.job.job_token,
+                        payload=ApiV1RunnersJobsJobUUIDUpdatePostRequestPayload(
+                            video_chunk_file=base64.b64encode(video_chunk).decode('UTF-8'),
+                            video_chunk_filename=output_video_file
+                        )
+                    )
+
             os.remove(video_file)
             client.abort_job(job_uuid=jobs[0].uuid, job_token=accepted.job.job_token, reason='Testing')
             client.unregister()
