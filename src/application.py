@@ -129,19 +129,27 @@ class Application:
                 except StopIteration as ex:
                     output_video_file = ex.value
                     break
-            while True:
-                with open(output_video_file, 'rb') as fp:
-                    video_chunk = fp.read(1024 * 100)
-                    if len(video_chunk) == 0:
-                        break
-                    client.update_job(
-                        job_uuid=jobs[0].uuid,
-                        job_token=accepted.job.job_token,
-                        payload=ApiV1RunnersJobsJobUUIDUpdatePostRequestPayload(
-                            video_chunk_file=base64.b64encode(video_chunk).decode('UTF-8'),
-                            video_chunk_filename=output_video_file
-                        )
-                    )
+            with open(output_video_file, 'rb') as fp:
+
+                client.post_success_vod_web(
+                    job_uuid=jobs[0].uuid,
+                    job_token=accepted.job.job_token,
+                    video_file=base64.b64encode(fp.read())
+                )
+            # while True:
+            #     with open(output_video_file, 'rb') as fp:
+            #         video_chunk = fp.read(1024 * 100)
+            #         if len(video_chunk) == 0:
+            #             break
+            #         client
+            #         client.update_job(
+            #             job_uuid=jobs[0].uuid,
+            #             job_token=accepted.job.job_token,
+            #             payload=ApiV1RunnersJobsJobUUIDUpdatePostRequestPayload(
+            #                 video_chunk_file=base64.b64encode(video_chunk).decode('UTF-8'),
+            #                 video_chunk_filename=output_video_file
+            #             )
+            #         )
 
             os.remove(video_file)
             client.abort_job(job_uuid=jobs[0].uuid, job_token=accepted.job.job_token, reason='Testing')

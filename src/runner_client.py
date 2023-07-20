@@ -3,12 +3,14 @@ import os.path
 from typing import Optional, List
 
 import requests
+from aiohttp import payload
 from barkeputils import human_readable_filesize_base_10
 from peertube_api_client import ApiClient, Configuration, ApiV1RunnersRegisterPostRequest, \
     ApiV1RunnersRegisterPost200Response, ApiV1RunnersUnregisterPostRequest, RunnerJobsApi, RunnersApi, \
     ApiV1RunnersJobsRequestPost200ResponseAvailableJobsInner, \
     ApiV1RunnersJobsJobUUIDAcceptPost200Response, ApiV1RunnersJobsJobUUIDAbortPostRequest, \
-    ApiV1RunnersJobsJobUUIDUpdatePostRequest, ApiV1RunnersJobsJobUUIDUpdatePostRequestPayload
+    ApiV1RunnersJobsJobUUIDUpdatePostRequest, ApiV1RunnersJobsJobUUIDUpdatePostRequestPayload, \
+    ApiV1RunnersJobsJobUUIDSuccessPostRequest, ApiV1RunnersJobsJobUUIDSuccessPostRequestPayload, VODWebVideoTranscoding
 
 
 class RunnerClient:
@@ -101,6 +103,27 @@ class RunnerClient:
         self.runner_token = rs.runner_token
 
         return self.runner_token
+
+    def post_success_vod_web(
+            self,
+            job_uuid: str,
+            job_token: str,
+            video_file: str,
+    ):
+        self.logger.info(f'Posting job success for instance {self.instance_url} for a job {job_token}')
+
+        self.runner_jobs_api.api_v1_runners_jobs_job_uuid_success_post(
+            job_uuid=job_uuid,
+            api_v1_runners_jobs_job_uuid_success_post_request=ApiV1RunnersJobsJobUUIDSuccessPostRequest(
+                job_token=job_token,
+                runner_token=self.runner_token,
+                payload=ApiV1RunnersJobsJobUUIDSuccessPostRequestPayload(
+                    anyof_schema_1_validator=VODWebVideoTranscoding(
+                        video_file=video_file
+                    )
+                )
+            )
+        )
 
     def update_job(
             self,
