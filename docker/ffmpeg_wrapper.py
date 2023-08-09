@@ -1,9 +1,9 @@
 #!/bin/python3
-
+import os
 import subprocess
 import sys
 from enum import Enum
-from typing import List, Self
+from typing import List, Optional
 
 ffmpeg_bin_path = '/usr/bin/ffmpeg'
 # good is the default and recommended for most applications.
@@ -11,7 +11,7 @@ ffmpeg_bin_path = '/usr/bin/ffmpeg'
 # realtime is recommended for live / fast encoding.
 ffmpeg_deadline = 'good'
 ffmpeg_crf = '31'
-print_argv = True
+print_argv = False
 if print_argv:
     log_file = open('/home/node/ffmpeg_wrapper_logs/logs.log', 'a')
 else:
@@ -27,7 +27,7 @@ class SimpleArgParser:
         self._flags = set()
         self._args = set()
 
-    def add_argument(self, name: str, is_flag: bool = False) -> Self:
+    def add_argument(self, name: str, is_flag: bool = False) -> 'SimpleArgParser':
         if is_flag:
             if name in self._flags:
                 raise ArgparseError(f'Flag with name {name} already exists')
@@ -112,7 +112,67 @@ def get_simple_arg_parser() -> SimpleArgParser:
         .add_argument('-channel_layout')
 
 
-def generate_transcode_command(args: List[List[str]]) -> List[List[str]]:
+class FfmpegCommand:
+    def __init__(self, argv: List[str], write_random_to_file: Optional[str] = None,
+                 remove_files_after_complete: Optional[List[str]] = None):
+        self._argv = argv
+        self._write_random_to_file = write_random_to_file
+        self._remove_files_after_complete = remove_files_after_complete
+
+    def _run_with_timeout(self):
+        proc = subprocess.Popen([ffmpeg_bin_path, *self._argv], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        while True:
+            try:
+                stdout, stderr = proc.communicate(timeout=1)
+                if proc.returncode != 0:
+                    print(f'{ffmpeg_bin_path} returned not 0', file=sys.stderr)
+                    print(stderr.decode('UTF-8'), file=sys.stderr)
+                    print(stdout.decode('UTF-8'), file=sys.stdout)
+                    print(f'{ffmpeg_bin_path} returned not 0', file=log_file)
+                    print(stderr.decode('UTF-8'), file=log_file)
+                    print(stdout.decode('UTF-8'), file=log_file)
+                    return proc.returncode
+                print(stderr.decode('UTF-8'), file=sys.stderr)
+                print(stdout.decode('UTF-8'), file=sys.stdout)
+                break
+            except subprocess.TimeoutExpired as ex:
+                with open(self._write_random_to_file, 'ba') as fp:
+                    # 512 because max_muxing_queue_size is 1024? Dunno
+                    fp.write(b'lo' * 512)
+            # Remove trash from file. Just in case
+            with open(self._write_random_to_file, 'wb') as fp:
+                pass
+            if self._remove_files_after_complete is not None:
+                for file_to_remove in self._remove_files_after_complete:
+                    os.remove(file_to_remove)
+
+    def _run_blocking(self):
+        proc = subprocess.Popen([ffmpeg_bin_path, *self._argv], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = proc.communicate()
+        if proc.returncode != 0:
+            print(f'{ffmpeg_bin_path} returned not 0', file=sys.stderr)
+            print(stderr.decode('UTF-8'), file=sys.stderr)
+            print(stdout.decode('UTF-8'), file=sys.stdout)
+            print(f'{ffmpeg_bin_path} returned not 0', file=log_file)
+            print(stderr.decode('UTF-8'), file=log_file)
+            print(stdout.decode('UTF-8'), file=log_file)
+            return proc.returncode
+        print(stderr.decode('UTF-8'), file=sys.stderr)
+        print(stdout.decode('UTF-8'), file=sys.stdout)
+        if self._remove_files_after_complete is not None:
+            for file_to_remove in self._remove_files_after_complete:
+                os.remove(file_to_remove)
+
+    def exec(self):
+        # Trick peertube runner into thinking that ffmpeg is working. Probably a bad idea, but meh.
+        # Might result in corrupted files on the server end
+        if self._write_random_to_file is not None:
+            self._run_with_timeout()
+        else:
+            self._run_blocking()
+
+
+def generate_transcode_command(args: List[List[str]]) -> List[FfmpegCommand]:
     output_file = args[-1][0]
     flag_arguments = dict(map(lambda x: (x[0], x[1:]), filter(lambda x: x[0].startswith('-'), args)))
     input_file = flag_arguments['-i'][0]
@@ -129,7 +189,6 @@ def generate_transcode_command(args: List[List[str]]) -> List[List[str]]:
     b_strategy = flag_arguments['-b_strategy'][0]
     b_frames = flag_arguments['-bf'][0]
     framerate = flag_arguments['-r'][0]
-    level_v = flag_arguments['-level:v'][0]
     g_v = flag_arguments['-g:v'][0]
 
     first_pass = ['-i', input_file,
@@ -137,21 +196,22 @@ def generate_transcode_command(args: List[List[str]]) -> List[List[str]]:
                   '-movflags', movflags, '-map_metadata', map_metadata, '-pix_fmt', pixel_format,
                   *channel_layout, *bitrate_audio, '-vf', video_dimensions,
                   '-deadline', ffmpeg_deadline, '-b_strategy', b_strategy, '-bf', b_frames, '-r', framerate,
-                  '-level:v', level_v, '-g:v', g_v, '-pass', '1', '-b:v', '0', '-crf', ffmpeg_crf,
+                  '-g:v', g_v, '-pass', '1', '-b:v', '0', '-passlogfile', output_file, '-crf', ffmpeg_crf,
                   '/dev/null']
     second_pass = ['-i', input_file,
                    '-y', '-acodec', audio_codec, '-vcodec', 'libvpx-vp9', '-f', container_type,
                    '-movflags', movflags, '-map_metadata', map_metadata, '-pix_fmt', pixel_format,
                    *channel_layout, *bitrate_audio, '-vf', video_dimensions,
                    '-deadline', ffmpeg_deadline, '-b_strategy', b_strategy, '-bf', b_frames, '-r', framerate,
-                   '-level:v', level_v, '-g:v', g_v, '-pass', '2', '-b:v', '0', '-crf', ffmpeg_crf,
+                   '-g:v', g_v, '-pass', '2', '-b:v', '0', '-passlogfile', output_file, '-crf', ffmpeg_crf,
                    '-max_muxing_queue_size', max_muxing_queue_size,
                    output_file]
 
-    return [first_pass, second_pass]
+    return [FfmpegCommand(first_pass, write_random_to_file=output_file),
+            FfmpegCommand(second_pass, remove_files_after_complete=[f'{output_file}-0.log'])]
 
 
-def generate_hls_copy_command(args: List[List[str]]) -> List[List[str]]:
+def generate_hls_copy_command(args: List[List[str]]) -> List[FfmpegCommand]:
     output_file = args[-1][0]
     flag_arguments = dict(map(lambda x: (x[0], x[1:]), filter(lambda x: x[0].startswith('-'), args)))
     input_file = flag_arguments['-i'][0]
@@ -170,10 +230,10 @@ def generate_hls_copy_command(args: List[List[str]]) -> List[List[str]]:
         output_file
     ]
 
-    return [command]
+    return [FfmpegCommand(command)]
 
 
-def generate_hls_command(args: List[List[str]]) -> List[List[str]]:
+def generate_hls_command(args: List[List[str]]) -> List[FfmpegCommand]:
     output_file = args[-1][0]
     flag_arguments = dict(map(lambda x: (x[0], x[1:]), filter(lambda x: x[0].startswith('-'), args)))
     input_file = flag_arguments['-i'][0]
@@ -185,7 +245,6 @@ def generate_hls_command(args: List[List[str]]) -> List[List[str]]:
     b_strategy = flag_arguments['-b_strategy'][0]
     b_frames = flag_arguments['-bf'][0]
     framerate = flag_arguments['-r'][0]
-    level_v = flag_arguments['-level:v'][0]
     g_v = flag_arguments['-g:v'][0]
 
     hls_time = flag_arguments['-hls_time'][0]
@@ -200,8 +259,9 @@ def generate_hls_command(args: List[List[str]]) -> List[List[str]]:
         '-y', '-acodec', 'copy', '-vcodec', 'libvpx-vp9', '-f', 'null', '-movflags', movflags,
         '-max_muxing_queue_size', max_muxing_queue_size, '-map_metadata', map_metadata, '-pix_fmt', pixel_format,
         '-vf', video_dimensions,
-        '-deadline', ffmpeg_deadline, '-b_strategy', b_strategy, '-bf', b_frames, '-r', framerate,
-        '-level:v', level_v, '-g:v', g_v,
+        '-deadline', ffmpeg_deadline, '-b_strategy', b_strategy, '-bf', b_frames, '-pass', '1', '-passlogfile',
+        output_file, '-r', framerate,
+        '-g:v', g_v,
         '/dev/null'
     ]
     second_pass = [
@@ -209,13 +269,15 @@ def generate_hls_command(args: List[List[str]]) -> List[List[str]]:
         '-y', '-acodec', 'copy', '-vcodec', 'libvpx-vp9', '-f', 'mp4', '-movflags', movflags,
         '-max_muxing_queue_size', max_muxing_queue_size, '-map_metadata', map_metadata, '-pix_fmt', pixel_format,
         '-vf', video_dimensions, '-deadline', ffmpeg_deadline, '-b_strategy', b_strategy, '-bf', b_frames,
-        '-r', framerate, '-level:v', level_v, '-g:v', g_v, '-hls_time', hls_time, '-hls_list_size', hls_list_size,
+        '-r', framerate, '-pass', '2', '-passlogfile', output_file, '-g:v', g_v, '-hls_time', hls_time,
+        '-hls_list_size', hls_list_size,
         '-hls_playlist_type', hls_playlist_type, '-hls_segment_filename', hls_segment_filename,
         '-hls_segment_type', hls_segment_type, '-f', 'hls', '-hls_flags', hls_flags,
         output_file
     ]
 
-    return [first_pass, second_pass]
+    return [FfmpegCommand(first_pass, write_random_to_file=output_file),
+            FfmpegCommand(second_pass, remove_files_after_complete=[f'{output_file}-0.log'])]
 
 
 def passthrough(argv: List[str]) -> int:
@@ -255,29 +317,27 @@ def main(argv: List[str]) -> int:
         raise RuntimeError('Should not be reached')
 
     for sub_command in command:
-        if print_argv:
-            print('output ffmpeg command:', ' '.join(sub_command), file=log_file)
-        proc = subprocess.Popen([ffmpeg_bin_path, *sub_command], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        stdout, stderr = proc.communicate()
-        if proc.returncode != 0:
-            print(f'{ffmpeg_bin_path} returned not 0', file=sys.stderr)
-            print(stderr.decode('UTF-8'), file=sys.stderr)
-            print(stdout.decode('UTF-8'), file=sys.stdout)
-            print(f'{ffmpeg_bin_path} returned not 0', file=log_file)
-            print(stderr.decode('UTF-8'), file=log_file)
-            print(stdout.decode('UTF-8'), file=log_file)
-            return proc.returncode
-        print(stderr.decode('UTF-8'), file=sys.stderr)
-        print(stdout.decode('UTF-8'), file=sys.stdout)
+        sub_command.exec()
+        # if print_argv:
+        #     print('output ffmpeg command:', ' '.join(sub_command), file=log_file)
+        # proc = subprocess.Popen([ffmpeg_bin_path, *sub_command], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # stdout, stderr = proc.communicate()
+        # if proc.returncode != 0:
+        #     print(f'{ffmpeg_bin_path} returned not 0', file=sys.stderr)
+        #     print(stderr.decode('UTF-8'), file=sys.stderr)
+        #     print(stdout.decode('UTF-8'), file=sys.stdout)
+        #     print(f'{ffmpeg_bin_path} returned not 0', file=log_file)
+        #     print(stderr.decode('UTF-8'), file=log_file)
+        #     print(stdout.decode('UTF-8'), file=log_file)
+        #     return proc.returncode
+        # print(stderr.decode('UTF-8'), file=sys.stderr)
+        # print(stdout.decode('UTF-8'), file=sys.stdout)
 
     return 0
 
 
 if __name__ == '__main__':
-    if 'ffmpeg' in sys.argv[0]:
-        argv = sys.argv[1:]
-    else:
-        argv = sys.argv
-    if '-encoders' in argv or '-formats' in argv:
-        sys.exit(passthrough(argv))
-    sys.exit(main(argv))
+    filtered_argv = sys.argv[1:]
+    if '-encoders' in filtered_argv or '-formats' in filtered_argv:
+        sys.exit(passthrough(filtered_argv))
+    sys.exit(main(filtered_argv))
