@@ -123,12 +123,12 @@ class FfmpegCommand:
         proc = subprocess.Popen([ffmpeg_bin_path, *self._argv], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         while True:
             try:
-                stdout, stderr = proc.communicate(timeout=1)
+                stdout, stderr = proc.communicate(timeout=60)
                 if proc.returncode != 0:
                     print(f'{ffmpeg_bin_path} returned not 0', file=sys.stderr)
                     print(stderr.decode('UTF-8'), file=sys.stderr)
                     print(stdout.decode('UTF-8'), file=sys.stdout)
-                    print(f'{ffmpeg_bin_path} returned not 0', file=log_file)
+                    print(f'{ffmpeg_bin_path} returned not 0', file=log_file
                     print(stderr.decode('UTF-8'), file=log_file)
                     print(stdout.decode('UTF-8'), file=log_file)
                     return proc.returncode
