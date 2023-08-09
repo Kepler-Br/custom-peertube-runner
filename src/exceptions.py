@@ -1,2 +1,0 @@
-class ApplicationStartUpError(RuntimeError):
-    pass
