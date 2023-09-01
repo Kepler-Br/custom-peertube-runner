@@ -1,11 +1,13 @@
 ---
-version: "3"
+version: "3.9"
 
 services:
   runner:
     build:
       context: docker
+      network: host
     command: peertube-runner server
+    network_mode: host
     user: "0"
     environment:
       NODE_OPTIONS: --use-openssl-ca
@@ -14,9 +16,9 @@ services:
         source: ./config.toml
         target: /root/.config/peertube-runner-nodejs/default/config.toml
       - type: bind
-        source: ./ffmpeg_wrapper.py
+        source: ./docker/ffmpeg_wrapper.py
         target: /usr/local/bin/ffmpeg
       - './logs:/home/node/ffmpeg_wrapper_logs/'
 
 # Register:
-# docker compose exec -it --user 1000 runner peertube-runner register --url https://localhost.ru --registration-token ptrrt-53724de4-7c21-4689-bc01-a649aef9f340 --runner-name my-runner-name
+# docker compose exec -it --user 1000 runner peertube-runner register --url https://localhost.ru --registration-token ptrrt-1e9082fb-0575-411e-a618-fc771770e471 --runner-name my-runner-name

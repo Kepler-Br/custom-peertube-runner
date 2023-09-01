@@ -80,18 +80,20 @@ def get_speed_based_on_resolution_second_pass(frame_height: int) -> List[str]:
 
 
 def get_crf_based_on_resolution(frame_height: int) -> List[str]:
+    if frame_height == 144:
+        return ['-crf', str(38 + 10)]
     if frame_height == 240:
-        return ['-crf', '37']
+        return ['-crf', str(37 + 10)]
     if frame_height == 360:
-        return ['-crf', '36']
+        return ['-crf', str(36 + 10)]
     if frame_height == 480:
-        return ['-crf', '33']
+        return ['-crf', str(33 + 10)]
     if frame_height == 720:
-        return ['-crf', '32']
+        return ['-crf', str(32 + 10)]
     if frame_height == 1080:
-        return ['-crf', '31']
+        return ['-crf', str(31 + 10)]
     if frame_height == 1440:
-        return ['-crf', '24']
+        return ['-crf', str(24 + 10)]
     if frame_height == 2160:
         return ['-crf', '15']
 
@@ -101,7 +103,7 @@ def get_crf_based_on_resolution(frame_height: int) -> List[str]:
 
 
 def get_threading_settings_based_on_resolution(frame_height: int) -> List[str]:
-    return ['-row-mt', '1', '-cpu-used', '2']
+    return ['-row-mt', '1', '-cpu-used', '2',  '-tile-rows', '2']
     if frame_height == 240:
         return ['-tile-columns', '0', '-threads', '2']
     if frame_height == 360:
@@ -353,7 +355,7 @@ def generate_hls_command(args: List[List[str]]) -> List[FfmpegCommand]:
     map_metadata = flag_arguments['-map_metadata'][0]
     pixel_format = flag_arguments['-pix_fmt'][0]
     video_dimensions = flag_arguments['-vf'][0]
-    video_height = re.match(r'scale=w=([-\d]+):h=([\d]+)', video_dimensions).group(2)
+    video_height = int(re.match(r'scale=w=([-\d]+):h=([\d]+)', video_dimensions).group(2))
     b_strategy = flag_arguments['-b_strategy'][0]
     b_frames = flag_arguments['-bf'][0]
     framerate = flag_arguments['-r'][0]
